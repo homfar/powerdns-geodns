@@ -1,0 +1,35 @@
+# MaxMind databases — do not commit (license + file size)
+*.mmdb
+*.mmdb.gz
+GeoLite2-*.tar.gz
+GeoLite2-*/
+
+# Production zone files may contain real IPs, DKIM records and customer data
+zones/*
+!zones/examples/
+!zones/examples/**
+
+# Real production configuration
+pdns.conf
+geoip-backend.yaml
+.env
+.env.*
+!.env.example
+
+# Logs and runtime artifacts
+*.log
+logs/
+*.pid
+*.sock
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Backups generated during server edits
+*.bak
+*.bak[0-9]*
+*.tmp

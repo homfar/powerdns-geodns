@@ -1,0 +1,31 @@
+name: Validate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Lua parser
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+
+      - name: Validate Lua syntax
+        run: luac5.4 -p lua-global/10-geo-policy.lua
+
+      - name: Validate repository safety checks
+        run: bash scripts/validate.sh
+
+      - name: Check YAML files are readable text
+        run: |
+          test -s docs/geoip-backend.yaml.example
+          test -s zones/examples/example.com.yaml

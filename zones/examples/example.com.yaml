@@ -1,0 +1,60 @@
+zone:
+  domain: example.com
+  ttl: 3600
+  records:
+    example.com:
+      - soa: ns1.example.com hostmaster.example.com 2026010101 3600 1800 1209600 300
+      - ns:
+          content: ns1.example.com
+          ttl: 86400
+      - ns:
+          content: ns2.example.com
+          ttl: 86400
+      # GeoDNS: regional users -> REGIONAL_SERVER_IP, external users -> EXTERNAL_SERVER_IP
+      - lua:
+          ttl: 60
+          content: A ";return geo_pick('REGIONAL_SERVER_IP', 'EXTERNAL_SERVER_IP')"
+      - mx:
+          content: 0 mail.example.com
+          ttl: 3600
+      - txt:
+          content: "v=spf1 a mx ~all"
+          ttl: 3600
+
+    www.example.com:
+      - lua:
+          ttl: 60
+          content: A ";return geo_pick('REGIONAL_SERVER_IP', 'EXTERNAL_SERVER_IP')"
+
+    api.example.com:
+      - lua:
+          ttl: 60
+          content: A ";return geo_pick('REGIONAL_API_IP', 'EXTERNAL_API_IP')"
+
+    # Optional trace endpoint for temporary diagnostics.
+    # Remove or protect in production because it may expose routing details.
+    trace.example.com:
+      - lua:
+          ttl: 30
+          content: TXT ";return geo_trace()"
+
+    # Force external endpoint for a specific subdomain when no GeoDNS routing is needed.
+    cdn.example.com:
+      - a:
+          content: EXTERNAL_CDN_IP
+          ttl: 3600
+
+    mail.example.com:
+      - a:
+          content: REGIONAL_MAIL_IP
+          ttl: 3600
+
+    ns1.example.com:
+      - a:
+          content: NS1_IP
+          ttl: 86400
+
+    ns2.example.com:
+      - a:
+          content: NS2_IP
+          ttl: 86400

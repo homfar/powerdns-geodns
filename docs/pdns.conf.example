@@ -1,0 +1,49 @@
+setuid=pdns
+setgid=pdns
+local-address=0.0.0.0
+local-port=53
+
+# Hide PowerDNS version from version queries
+version-string=anonymous
+server-id=ns1-auth
+
+# Backend
+launch=geoip
+
+# Disable zone transfer and dynamic update by default
+primary=no
+secondary=no
+disable-axfr=yes
+allow-axfr-ips=
+allow-dnsupdate-from=
+
+# Disable API and web server in production unless explicitly needed
+api=no
+webserver=no
+
+# Logging
+# Keep DNS query logging disabled in production because it may expose resolver/client metadata.
+query-logging=no
+log-dns-details=no
+log-dns-queries=no
+loglevel=4
+loglevel-show=yes
+
+# Enable Lua records and EDNS Client Subnet processing
+enable-lua-records=yes
+edns-subnet-processing=yes
+
+# Internal resolver used by Lua scripts if needed
+resolver=127.0.0.1
+
+# Cache TTLs
+cache-ttl=20
+negquery-cache-ttl=5
+
+# GeoIP backend — paths must match your installation
+geoip-database-files=mmdb:/etc/powerdns/geoip/maxmind/GeoLite2-Country.mmdb
+geoip-zones-file=/etc/powerdns/geoip/geoip-backend.yaml
+
+# Lua global policy script directory
+socket-dir=/run/pdns
+lua-global-include-dir=/etc/powerdns/lua-global

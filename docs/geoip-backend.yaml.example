@@ -1,0 +1,5 @@
+# List all domains managed by this PowerDNS GeoIP backend instance.
+# Each domain should have a corresponding zone YAML file under /etc/powerdns/geoip/zones/.
+# Keep real production domain lists out of public repositories unless intentionally public.
+domains:
+  - example.com
