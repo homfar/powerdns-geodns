@@ -1,588 +1,451 @@
-# PowerDNS GeoDNS — ECS-Aware GeoIP Routing Policy
+# PowerDNS GeoDNS
 
-[![PowerDNS](https://img.shields.io/badge/PowerDNS-Authoritative-blue)](https://www.powerdns.com/)
-[![Lua](https://img.shields.io/badge/Lua-Policy%20Engine-orange)](https://www.lua.org/)
-[![MaxMind](https://img.shields.io/badge/MaxMind-GeoLite2-green)](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data)
-[![GeoDNS](https://img.shields.io/badge/GeoDNS-ECS%20Aware-purple)](#)
-[![License](https://img.shields.io/badge/License-MIT-brightgreen)](LICENSE)
+A production-ready GeoDNS policy for PowerDNS Authoritative Server, built with Lua, MaxMind GeoLite2, and EDNS Client Subnet-aware routing logic.
 
-**PowerDNS GeoDNS** is a self-hosted, production-oriented **GeoDNS routing policy** for **PowerDNS Authoritative Server**. It uses **PowerDNS Lua records**, **MaxMind GeoLite2-Country**, and **EDNS Client Subnet (ECS)** to return different DNS answers based on resolver/client geography and trusted routing signals.
-
-It is designed for infrastructure, DevOps and SRE teams that need deterministic, auditable and self-hosted DNS traffic steering without depending on a managed GeoDNS provider.
-
----
-
-## Language / زبان
-
-- [English Documentation](#english-documentation)
-- [مستندات فارسی](#مستندات-فارسی)
-
----
-
-# English Documentation
-
-## What This Project Does
-
-This repository provides a reusable **GeoDNS policy layer** for PowerDNS Authoritative Server. A DNS record can return a domestic/regional endpoint for one audience and an external/global endpoint for another audience.
-
-Typical routing model:
+It returns different DNS answers based on the geographic signal available at query time:
 
 ```text
-Regional users      → regional / local endpoint
-International users → external / global endpoint
+regional clients/resolvers  -> regional endpoint
+external clients/resolvers  -> external endpoint
 ```
 
-The main Lua function exposed to zone files is:
+The default policy is configured for Iran as the regional country:
+
+```text
+IR      -> regional endpoint
+non-IR  -> external endpoint
+```
+
+The implementation uses neutral `regional` and `external` naming so the same pattern can be adapted to other countries or private regional-routing designs.
+
+---
+
+## Overview
+
+This repository provides a reusable PowerDNS GeoDNS policy layer for two-endpoint traffic steering. It is intended for authoritative DNS deployments where a domain should resolve to one endpoint for a target region and another endpoint for the rest of the world.
+
+The policy combines:
+
+- PowerDNS Lua records
+- MaxMind GeoLite2 country lookup
+- EDNS Client Subnet-aware routing
+- Resolver GeoIP fallback
+- Manual resolver override rules
+- Safe fallback behavior for unknown or incomplete signals
+
+---
+
+## Routing Model
+
+The main function is:
 
 ```lua
 geo_pick(regional_ip, external_ip [, default_side])
 ```
 
-Example zone usage:
+Example:
 
-```yaml
-- lua:
-    ttl: 60
-    content: A ";return geo_pick('REGIONAL_SERVER_IP', 'EXTERNAL_SERVER_IP')"
+```lua
+geo_pick("192.0.2.10", "198.51.100.10")
 ```
 
-The policy can be adapted for Iran/international routing, domestic/global routing, CDN origin selection, private infrastructure steering or multi-region failover patterns where DNS-level geography matters.
-
-## Why It Matters
-
-GeoDNS looks simple, but production DNS routing is noisy. Users may query through public resolvers, ISP resolvers, CDN resolvers, VPNs, mobile networks or resolvers that include ECS data. Blindly trusting one signal can cause misrouting.
-
-This project provides a layered policy engine with clear decision priority:
-
-- manual resolver override lists
-- trusted ECS handling
-- untrusted ECS protection rules
-- resolver country lookup through MaxMind
-- PowerDNS `bestwho` fallback
-- explicit per-record fallback behavior
-- optional debug tracing for operational analysis
-
-## Architecture
+With the default regional country set to `IR`, the expected behavior is:
 
 ```text
-DNS Query
-   │
-   ▼
-PowerDNS Authoritative Server
-   │
-   ├── GeoIP Backend
-   │     └── MaxMind GeoLite2-Country lookup
-   │
-   └── Lua Global Policy
-         └── geo_pick(regional_ip, external_ip, default_side)
-               │
-               ├── 1. Resolver manual override
-               ├── 2. Trusted ECS decision
-               ├── 3. Regional resolver + foreign/bad ECS guard
-               ├── 4. Resolver country decision
-               ├── 5. PowerDNS bestwho fallback
-               └── 6. Record-level default fallback
+Iranian client or resolver      -> 192.0.2.10
+Non-Iranian client or resolver  -> 198.51.100.10
+Unknown signal                  -> fallback side
 ```
 
-## Decision Priority
+The example IP addresses are documentation ranges. Replace them with your own endpoints in your deployment configuration.
 
-| Priority | Signal | Decision Logic |
-|---:|---|---|
-| 1 | Resolver manual override | Resolver prefixes can be forced to `IR` or `EXT` |
-| 2 | Trusted ECS | ECS from allowlisted resolvers is treated as authoritative |
-| 3 | Regional resolver + foreign/bad ECS | Prevents domestic users from being misrouted to external IPs |
-| 4 | Resolver country | Uses MaxMind country lookup for the resolver IP |
-| 5 | `bestwho` country | Uses the PowerDNS-selected client address as a fallback signal |
-| 6 | Default fallback | Uses `EXT` by default or explicit `IR`/`EXT` passed to `geo_pick()` |
+---
 
-> The current policy uses `IR` and `EXT` as route labels because it was designed for Iran/international traffic steering. You can keep those labels or adapt the lists and comments for another regional routing model.
+## How the Policy Decides
 
-## ECS Trust Model
+The policy evaluates multiple signals in a predictable order:
 
-ECS improves routing accuracy only when it is handled carefully. This policy validates ECS using these rules:
+1. Manual resolver override
+2. Trusted EDNS Client Subnet signal
+3. Resolver GeoIP country
+4. PowerDNS `bestwho` fallback
+5. Configured default side
 
-- IPv4 ECS prefixes must be at least `/24`.
-- IPv6 ECS prefixes must be at least `/48`.
-- Private, loopback, link-local and unspecified addresses are rejected.
-- ECS from trusted resolvers can route to either `IR` or `EXT`.
-- ECS from untrusted resolvers is only allowed to route toward `IR` when ECS resolves to Iran.
-- If the resolver itself is known as regional/domestic and ECS points abroad, the resolver signal wins to reduce domestic-user misrouting.
+This helps avoid relying on a single signal. For example, if ECS is unavailable or not trusted, the policy can still fall back to resolver GeoIP or the configured default side.
 
-## Features
-
-- Self-hosted GeoDNS for PowerDNS Authoritative Server
-- Lua-based policy engine with a simple `geo_pick()` API
-- MaxMind GeoLite2-Country integration through the PowerDNS GeoIP backend
-- EDNS Client Subnet aware routing
-- IPv4 and IPv6 ECS prefix validation
-- Manual resolver override lists
-- Safe production defaults
-- Optional debug trace support with `geo_trace()`
-- Example PowerDNS Authoritative configuration
-- Example GeoIP backend domain list
-- Example YAML zone file
-- Deployment, testing and security documentation
-- GitHub Actions validation workflow
-- Bilingual English/Persian documentation
+---
 
 ## Repository Structure
 
 ```text
-powerdns-geodns/
+.
 ├── lua-global/
-│   └── 10-geo-policy.lua              # PowerDNS global Lua GeoDNS policy
+│   └── 10-geo-policy.lua
 ├── zones/
 │   └── examples/
-│       └── example.com.yaml           # Example GeoIP backend zone
+│       └── example.com.yaml
 ├── docs/
-│   ├── INSTALL.md                     # Deployment guide
-│   ├── TESTING.md                     # dig/ECS validation examples
-│   ├── DEPLOYMENT_CHECKLIST.md        # Production checklist
-│   ├── pdns.conf.example              # PowerDNS authoritative config example
-│   └── geoip-backend.yaml.example     # GeoIP backend domain list example
+│   ├── INSTALL.md
+│   ├── TESTING.md
+│   ├── DEPLOYMENT_CHECKLIST.md
+│   ├── RELEASE_NOTES_v1.0.0.md
+│   ├── pdns.conf.example
+│   └── geoip-backend.yaml.example
 ├── scripts/
-│   └── validate.sh                    # Repository safety and formatting checks
-├── .github/workflows/
-│   └── validate.yml                   # CI validation
+│   └── validate.sh
+├── .github/
+│   └── workflows/
+│       └── validate.yml
 ├── Makefile
 ├── SECURITY.md
 ├── LICENSE
 └── README.md
 ```
 
-## Production Quick Start
+---
 
-### 1. Install prerequisites
+## Requirements
 
-Debian / Ubuntu:
+- Linux server
+- PowerDNS Authoritative Server
+- PowerDNS GeoIP backend
+- Lua records enabled
+- MaxMind GeoLite2 Country database
+- `dig` for DNS validation
 
-```bash
-sudo apt update
-sudo apt install -y pdns-server pdns-backend-geoip dnsutils
-```
+---
 
-RHEL / Rocky / AlmaLinux:
+## Quick Start
 
-```bash
-sudo dnf install -y pdns pdns-backend-geoip bind-utils
-```
-
-### 2. Prepare directories
+Clone the repository:
 
 ```bash
-sudo mkdir -p /etc/powerdns/lua-global
-sudo mkdir -p /etc/powerdns/geoip/zones
-sudo mkdir -p /etc/powerdns/geoip/maxmind
+git clone https://github.com/homfar/powerdns-geodns.git
+cd powerdns-geodns
 ```
 
-### 3. Download MaxMind GeoLite2-Country
-
-Create a free MaxMind account and download `GeoLite2-Country.mmdb` from MaxMind.
-
-Place the database here:
+Run validation:
 
 ```bash
-sudo cp GeoLite2-Country.mmdb /etc/powerdns/geoip/maxmind/
-sudo chown root:root /etc/powerdns/geoip/maxmind/GeoLite2-Country.mmdb
-sudo chmod 0644 /etc/powerdns/geoip/maxmind/GeoLite2-Country.mmdb
+bash scripts/validate.sh
 ```
 
-Do **not** commit `.mmdb` files to GitHub.
-
-### 4. Install the Lua policy
-
-```bash
-sudo cp lua-global/10-geo-policy.lua /etc/powerdns/lua-global/
-sudo chown root:root /etc/powerdns/lua-global/10-geo-policy.lua
-sudo chmod 0644 /etc/powerdns/lua-global/10-geo-policy.lua
-```
-
-### 5. Install example config files
-
-```bash
-sudo cp docs/pdns.conf.example /etc/powerdns/pdns.conf
-sudo cp docs/geoip-backend.yaml.example /etc/powerdns/geoip/geoip-backend.yaml
-sudo cp zones/examples/example.com.yaml /etc/powerdns/geoip/zones/example.com.yaml
-```
-
-Then edit placeholders such as:
-
-```text
-example.com
-REGIONAL_SERVER_IP
-EXTERNAL_SERVER_IP
-NS1_IP
-NS2_IP
-```
-
-### 6. Validate PowerDNS configuration
-
-```bash
-sudo pdns_server --config-check
-```
-
-If your distribution does not support `--config-check`, restart and inspect logs immediately:
-
-```bash
-sudo systemctl restart pdns
-sudo journalctl -u pdns -n 100 --no-pager
-```
-
-### 7. Restart PowerDNS
-
-```bash
-sudo systemctl restart pdns
-sudo systemctl status pdns --no-pager
-```
-
-### 8. Test with dig
-
-```bash
-dig @127.0.0.1 example.com SOA +short
-dig @127.0.0.1 example.com A +short
-dig @127.0.0.1 www.example.com A +short
-```
-
-More test scenarios are available in [docs/TESTING.md](docs/TESTING.md).
-
-## Lua Configuration Reference
-
-| Variable | Default | Description |
-|---|---:|---|
-| `GEOPOLICY_DEBUG` | `false` | Enables structured debug logs with `pdnslog()` |
-| `IR_RESOLVERS` | empty | Verified regional/domestic resolver prefixes that should be forced to `IR` |
-| `EXT_RESOLVERS` | empty | Verified external/international resolver prefixes that should be forced to `EXT` |
-| `TRUSTED_ECS_RESOLVERS` | empty | Resolvers whose ECS data is fully trusted |
-| `ECS_MIN_V4_BITS` | `24` | Minimum acceptable IPv4 ECS prefix length |
-| `ECS_MIN_V6_BITS` | `48` | Minimum acceptable IPv6 ECS prefix length |
-| `ALLOW_IR_FROM_UNLISTED_FOREIGN_ECS` | `true` | Allows untrusted ECS to route to `IR` when ECS country is Iran |
-
-## Zone File Usage
-
-Basic A record routing:
-
-```yaml
-- lua:
-    ttl: 60
-    content: A ";return geo_pick('REGIONAL_IP', 'EXTERNAL_IP')"
-```
-
-Explicit fallback to the external side when country cannot be determined:
-
-```yaml
-- lua:
-    ttl: 60
-    content: A ";return geo_pick('REGIONAL_IP', 'EXTERNAL_IP', 'EXT')"
-```
-
-Explicit fallback to the regional side when country cannot be determined:
-
-```yaml
-- lua:
-    ttl: 60
-    content: A ";return geo_pick('REGIONAL_IP', 'EXTERNAL_IP', 'IR')"
-```
-
-Debug trace record:
-
-```yaml
-trace.example.com:
-  - lua:
-      ttl: 30
-      content: TXT ";return geo_trace()"
-```
-
-Then query:
-
-```bash
-dig @127.0.0.1 trace.example.com TXT
-```
-
-## Production Hardening
-
-### DNS exposure
-
-Expose only DNS ports unless you intentionally operate administrative APIs:
-
-```bash
-sudo ufw allow 53/udp
-sudo ufw allow 53/tcp
-```
-
-For firewalld:
-
-```bash
-sudo firewall-cmd --permanent --add-service=dns
-sudo firewall-cmd --reload
-```
-
-### PowerDNS hardening
-
-Recommended defaults are included in [docs/pdns.conf.example](docs/pdns.conf.example):
-
-```text
-version-string=anonymous
-disable-axfr=yes
-api=no
-webserver=no
-query-logging=no
-log-dns-queries=no
-enable-lua-records=yes
-edns-subnet-processing=yes
-```
-
-### Operational rules
-
-- Keep `GEOPOLICY_DEBUG = false` in production.
-- Do not commit real production zone files.
-- Do not commit real server IPs, DKIM values, private keys or MaxMind databases.
-- Keep resolver override lists small, verified and documented.
-- Test routing from domestic and international networks before switching NS records.
-- Keep TTLs low during rollout; increase them after stable routing is confirmed.
-- Maintain a documented MaxMind database update process.
-
-See [SECURITY.md](SECURITY.md) and [docs/DEPLOYMENT_CHECKLIST.md](docs/DEPLOYMENT_CHECKLIST.md).
-
-## Local Repository Validation
+Or:
 
 ```bash
 make validate
 ```
 
-or:
+Review the example configuration files:
 
 ```bash
-bash scripts/validate.sh
-luac -p lua-global/10-geo-policy.lua
+cat docs/pdns.conf.example
+cat docs/geoip-backend.yaml.example
+cat zones/examples/example.com.yaml
 ```
-
-## Recommended GitHub Topics
-
-```text
-powerdns geodns geoip dns authoritative-dns lua ecs edns-client-subnet maxmind geolite2 dns-routing traffic-steering devops sre infrastructure self-hosted
-```
-
-## Roadmap
-
-- [ ] Optional Docker Compose lab for local testing
-- [ ] Automated GeoLite2 update helper
-- [ ] Route decision metrics exporter
-- [ ] CIDR/city/ISP-level routing profiles
-- [ ] Lua unit-test harness with mocked PowerDNS globals
-
-## License
-
-MIT License — see [LICENSE](LICENSE).
 
 ---
 
-# مستندات فارسی
+## Example Zone Record
 
-## این پروژه دقیقاً چه می‌کند؟
+A Lua-backed A record can be defined like this:
 
-این پروژه یک سیستم **GeoDNS اختصاصی و self-hosted** برای **PowerDNS Authoritative Server** است. با استفاده از Lua، دیتابیس MaxMind GeoLite2-Country و پردازش EDNS Client Subnet، می‌تواند پاسخ DNS را بر اساس موقعیت resolver یا client subnet تغییر دهد.
-
-مدل رایج استفاده:
-
-```text
-کاربر منطقه‌ای / داخلی      → IP سرور داخلی یا نزدیک‌تر
-کاربر بین‌المللی / خارجی   → IP سرور خارجی یا جهانی
+```yaml
+records:
+  - name: "www"
+    type: "A"
+    ttl: 60
+    content: "geo_pick('192.0.2.10', '198.51.100.10')"
 ```
 
-تابع اصلی پروژه داخل zone file این است:
+Meaning:
+
+```text
+192.0.2.10     -> regional endpoint
+198.51.100.10  -> external endpoint
+```
+
+Recommended rollout approach:
+
+1. Start with a low TTL.
+2. Test from regional and external networks.
+3. Confirm resolver behavior.
+4. Increase TTL after verification.
+
+---
+
+## Production Deployment
+
+A typical production deployment flow:
+
+1. Install PowerDNS Authoritative Server.
+2. Enable the GeoIP backend.
+3. Install the MaxMind GeoLite2 Country database.
+4. Add the Lua policy file to the PowerDNS Lua include path.
+5. Configure PowerDNS to load Lua records.
+6. Configure GeoIP backend zones.
+7. Add Lua-backed records to the zone file.
+8. Validate the PowerDNS configuration.
+9. Restart PowerDNS.
+10. Test DNS answers from multiple networks and resolvers.
+11. Monitor DNS responses after rollout.
+
+Detailed guides:
+
+- [Installation Guide](docs/INSTALL.md)
+- [Testing Guide](docs/TESTING.md)
+- [Deployment Checklist](docs/DEPLOYMENT_CHECKLIST.md)
+
+---
+
+## Configuration Notes
+
+The default regional country is currently `IR`.
+
+A future version can move this into a single configurable value, for example:
+
+```lua
+REGIONAL_COUNTRY_CODE = "IR"
+```
+
+This would make the policy easier to reuse for other countries without changing the decision logic.
+
+---
+
+## Testing
+
+Basic local query:
+
+```bash
+dig @127.0.0.1 www.example.com A
+```
+
+Query an authoritative DNS server:
+
+```bash
+dig @YOUR_AUTH_DNS_IP www.example.com A +short
+```
+
+Test with EDNS Client Subnet:
+
+```bash
+dig @YOUR_AUTH_DNS_IP www.example.com A +subnet=5.0.0.0/24
+```
+
+Use the full testing guide for a complete validation flow:
+
+```text
+docs/TESTING.md
+```
+
+---
+
+## Operational Notes
+
+- Keep `GEOPOLICY_DEBUG=false` in production.
+- Keep deployment-specific values in your private operational configuration.
+- Use documentation ranges in examples and public templates.
+- Start rollout with low TTL values.
+- Test with multiple resolvers and networks.
+- Keep the GeoLite2 database updated.
+- Review resolver override lists periodically.
+- Monitor DNS answers after every policy or zone change.
+- Validate GeoDNS behavior before enabling DNSSEC for affected zones.
+
+---
+
+## Validation
+
+Run:
+
+```bash
+bash scripts/validate.sh
+```
+
+Or:
+
+```bash
+make validate
+```
+
+The validation script checks the repository layout, required files, example configuration, and common packaging issues.
+
+GitHub Actions runs validation on push and pull request.
+
+---
+
+## Security
+
+This repository includes a basic [Security Policy](SECURITY.md).
+
+For public examples and templates, use documentation-only domains and IP ranges:
+
+```text
+example.com
+192.0.2.0/24
+198.51.100.0/24
+203.0.113.0/24
+```
+
+Keep environment-specific configuration, operational resolver lists, database files, and deployment secrets outside the repository.
+
+---
+
+## Release
+
+Recommended first stable tag:
+
+```text
+v1.0.0
+```
+
+Release notes:
+
+```text
+docs/RELEASE_NOTES_v1.0.0.md
+```
+
+---
+
+## Roadmap
+
+Possible improvements:
+
+- Configurable regional country code
+- Multi-region country-to-endpoint mapping
+- Containerized PowerDNS integration tests
+- Automated resolver classification helper
+- DNS answer monitoring script
+- Ansible role for repeatable deployment
+
+---
+
+## References
+
+- [PowerDNS Lua Records](https://doc.powerdns.com/authoritative/lua-records/)
+- [PowerDNS GeoIP Backend](https://doc.powerdns.com/authoritative/backends/geoip.html)
+- [PowerDNS Lua Record Variables](https://doc.powerdns.com/authoritative/lua-records/functions.html)
+
+---
+
+# فارسی
+
+## معرفی
+
+این پروژه یک سیاست GeoDNS برای PowerDNS Authoritative Server است. منطق آن با Lua نوشته شده و برای تصمیم‌گیری از MaxMind GeoLite2، اطلاعات resolver و EDNS Client Subnet استفاده می‌کند.
+
+هدف پروژه انتخاب پاسخ DNS بین دو مسیر است:
+
+```text
+کاربر یا resolver منطقه‌ای  -> endpoint منطقه‌ای
+کاربر یا resolver خارجی     -> endpoint خارجی
+```
+
+در تنظیم پیش‌فرض، کشور منطقه‌ای ایران (`IR`) است:
+
+```text
+IR      -> مسیر منطقه‌ای
+غیر IR  -> مسیر خارجی
+```
+
+نام‌گذاری پروژه به‌صورت `regional` و `external` انجام شده تا بتوان از همین مدل برای سناریوهای مشابه نیز استفاده کرد.
+
+---
+
+## قابلیت‌ها
+
+- مسیریابی GeoDNS روی PowerDNS
+- سیاست DNS مبتنی بر Lua
+- تشخیص کشور با MaxMind GeoLite2
+- پشتیبانی از EDNS Client Subnet
+- override دستی برای resolverها
+- fallback برای سیگنال‌های ناقص یا نامشخص
+- نمونه تنظیمات PowerDNS
+- نمونه zone برای GeoIP backend
+- مستندات نصب، تست و deployment
+
+---
+
+## منطق اصلی
+
+تابع اصلی:
 
 ```lua
 geo_pick(regional_ip, external_ip [, default_side])
 ```
 
-نمونه استفاده:
+نمونه:
 
-```yaml
-- lua:
-    ttl: 60
-    content: A ";return geo_pick('REGIONAL_SERVER_IP', 'EXTERNAL_SERVER_IP')"
+```lua
+geo_pick("192.0.2.10", "198.51.100.10")
 ```
 
-این پروژه برای سناریوهای DevOps/SRE، زیرساخت DNS، Authoritative DNS، ترافیک‌استیرینگ، سرویس‌های چندمنطقه‌ای، routing منطقه‌ای و مدیریت پاسخ DNS در سطح production مناسب است.
-
-## چرا پروژه ارزشمند است؟
-
-GeoDNS فقط تشخیص کشور نیست. در دنیای واقعی درخواست DNS ممکن است از resolverهای عمومی، resolverهای ISP، CDN، VPN، شبکه موبایل یا resolverهایی با ECS برسد. اگر فقط به یک سیگنال اعتماد شود، احتمال misroute وجود دارد.
-
-این پروژه یک لایه policy قابل کنترل ایجاد می‌کند که تصمیم DNS را بر اساس چند سطح انجام می‌دهد:
-
-- لیست override دستی resolverها
-- ECS معتبر از resolverهای trusted
-- محافظت در برابر ECS نامعتبر یا گمراه‌کننده
-- تشخیص کشور resolver با MaxMind
-- fallback داخلی PowerDNS با `bestwho`
-- fallback صریح در سطح رکورد
-
-## معماری
+در حالت پیش‌فرض:
 
 ```text
-درخواست DNS
-   │
-   ▼
-PowerDNS Authoritative Server
-   │
-   ├── GeoIP Backend
-   │     └── تشخیص کشور با MaxMind GeoLite2-Country
-   │
-   └── Lua Global Policy
-         └── geo_pick(regional_ip, external_ip, default_side)
-               │
-               ├── ۱. Override دستی resolver
-               ├── ۲. تصمیم‌گیری با ECS معتبر
-               ├── ۳. محافظت در برابر ECS خارجی/نامعتبر برای resolver داخلی
-               ├── ۴. تشخیص کشور resolver
-               ├── ۵. fallback با bestwho در PowerDNS
-               └── ۶. fallback پیش‌فرض رکورد
+کاربر یا resolver ایرانی      -> 192.0.2.10
+کاربر یا resolver غیرایرانی   -> 198.51.100.10
+سیگنال نامشخص                 -> مسیر fallback
 ```
 
-## منطق تصمیم‌گیری
+---
 
-| اولویت | سیگنال | منطق |
-|---:|---|---|
-| ۱ | Override دستی resolver | prefixهای مشخص می‌توانند اجباراً `IR` یا `EXT` شوند |
-| ۲ | ECS معتبر | ECS از resolverهای allowlist‌شده معتبر محسوب می‌شود |
-| ۳ | resolver داخلی + ECS خارجی/نامعتبر | برای کاهش misroute، سیگنال resolver داخلی اولویت می‌گیرد |
-| ۴ | کشور resolver | کشور IP resolver با MaxMind بررسی می‌شود |
-| ۵ | کشور `bestwho` | fallback داخلی PowerDNS استفاده می‌شود |
-| ۶ | fallback پیش‌فرض | پیش‌فرض `EXT` است، مگر در `geo_pick()` چیز دیگری بدهید |
+## ترتیب تصمیم‌گیری
 
-## ویژگی‌ها
+پروژه برای انتخاب پاسخ DNS این موارد را بررسی می‌کند:
 
-- GeoDNS اختصاصی و self-hosted
-- مناسب برای PowerDNS Authoritative Server
-- سیاست‌گذاری Lua با API ساده `geo_pick()`
-- تشخیص کشور با MaxMind GeoLite2-Country
-- پشتیبانی از EDNS Client Subnet
-- اعتبارسنجی prefix برای IPv4 و IPv6
-- override دستی resolverها
-- پیش‌فرض‌های امن برای production
-- قابلیت trace با `geo_trace()`
-- کانفیگ نمونه PowerDNS
-- zone نمونه برای GeoIP backend
-- چک‌لیست production deployment
-- مستندات انگلیسی و فارسی
-- GitHub Actions برای اعتبارسنجی اولیه
+1. override دستی resolver
+2. EDNS Client Subnet در صورت قابل اعتماد بودن
+3. کشور resolver بر اساس GeoIP
+4. fallback مبتنی بر `bestwho`
+5. مسیر پیش‌فرض
 
-## نصب production
+این مدل باعث می‌شود تصمیم‌گیری فقط به یک سیگنال وابسته نباشد.
 
-Debian / Ubuntu:
+---
+
+## شروع سریع
 
 ```bash
-sudo apt update
-sudo apt install -y pdns-server pdns-backend-geoip dnsutils
-```
-
-Rocky / AlmaLinux:
-
-```bash
-sudo dnf install -y pdns pdns-backend-geoip bind-utils
-```
-
-ساخت مسیرها:
-
-```bash
-sudo mkdir -p /etc/powerdns/lua-global
-sudo mkdir -p /etc/powerdns/geoip/zones
-sudo mkdir -p /etc/powerdns/geoip/maxmind
-```
-
-نصب Lua policy:
-
-```bash
-sudo cp lua-global/10-geo-policy.lua /etc/powerdns/lua-global/
-sudo chown root:root /etc/powerdns/lua-global/10-geo-policy.lua
-sudo chmod 0644 /etc/powerdns/lua-global/10-geo-policy.lua
-```
-
-کپی کانفیگ‌ها:
-
-```bash
-sudo cp docs/pdns.conf.example /etc/powerdns/pdns.conf
-sudo cp docs/geoip-backend.yaml.example /etc/powerdns/geoip/geoip-backend.yaml
-sudo cp zones/examples/example.com.yaml /etc/powerdns/geoip/zones/example.com.yaml
-```
-
-دیتابیس MaxMind را جداگانه دانلود کنید و اینجا بگذارید:
-
-```bash
-sudo cp GeoLite2-Country.mmdb /etc/powerdns/geoip/maxmind/
-sudo chown root:root /etc/powerdns/geoip/maxmind/GeoLite2-Country.mmdb
-sudo chmod 0644 /etc/powerdns/geoip/maxmind/GeoLite2-Country.mmdb
-```
-
-سپس placeholderها مثل موارد زیر را با مقدار واقعی خودتان جایگزین کنید:
-
-```text
-example.com
-REGIONAL_SERVER_IP
-EXTERNAL_SERVER_IP
-NS1_IP
-NS2_IP
-```
-
-بررسی کانفیگ:
-
-```bash
-sudo pdns_server --config-check
-```
-
-Restart:
-
-```bash
-sudo systemctl restart pdns
-sudo systemctl status pdns --no-pager
-```
-
-تست:
-
-```bash
-dig @127.0.0.1 example.com SOA +short
-dig @127.0.0.1 example.com A +short
-dig @127.0.0.1 www.example.com A +short
-```
-
-## تنظیمات مهم Lua
-
-| متغیر | پیش‌فرض | توضیح |
-|---|---:|---|
-| `GEOPOLICY_DEBUG` | `false` | فعال‌سازی لاگ debug |
-| `IR_RESOLVERS` | خالی | prefixهای resolver داخلی/منطقه‌ای که با تست واقعی تأیید شده‌اند |
-| `EXT_RESOLVERS` | خالی | prefixهای resolver خارجی/بین‌المللی که با تست واقعی تأیید شده‌اند |
-| `TRUSTED_ECS_RESOLVERS` | خالی | resolverهایی که ECS آن‌ها کاملاً trusted است |
-| `ECS_MIN_V4_BITS` | `24` | حداقل طول prefix برای ECS IPv4 |
-| `ECS_MIN_V6_BITS` | `48` | حداقل طول prefix برای ECS IPv6 |
-| `ALLOW_IR_FROM_UNLISTED_FOREIGN_ECS` | `true` | اگر ECS غیر trusted کشور ایران را نشان دهد، اجازه route به IR داده می‌شود |
-
-## سخت‌سازی production
-
-- فقط UDP/TCP 53 را در فایروال عمومی باز کنید.
-- API و webserver داخلی PowerDNS را عمومی نکنید.
-- `version-string=anonymous` فعال باشد.
-- AXFR غیرفعال باشد یا فقط با allowlist انجام شود.
-- Dynamic DNS update غیرفعال باشد مگر واقعاً لازم باشد.
-- در production مقدار `GEOPOLICY_DEBUG` باید `false` باشد.
-- فایل‌های zone واقعی، IPهای حساس، DKIM، secret، کلید خصوصی و فایل‌های `.mmdb` را در GitHub نگذارید.
-- TTL را در زمان rollout پایین نگه دارید و بعد از پایداری افزایش دهید.
-- MaxMind database update process داشته باشید.
-
-## اعتبارسنجی repository
-
-```bash
-make validate
-```
-
-یا:
-
-```bash
+git clone https://github.com/homfar/powerdns-geodns.git
+cd powerdns-geodns
 bash scripts/validate.sh
-luac -p lua-global/10-geo-policy.lua
 ```
+
+تست ساده:
+
+```bash
+dig @127.0.0.1 www.example.com A
+```
+
+تست با EDNS Client Subnet:
+
+```bash
+dig @YOUR_AUTH_DNS_IP www.example.com A +subnet=5.0.0.0/24
+```
+
+مستندات کامل‌تر:
+
+```text
+docs/INSTALL.md
+docs/TESTING.md
+docs/DEPLOYMENT_CHECKLIST.md
+```
+
+---
+
+## نکات عملیاتی
+
+- مقدار `GEOPOLICY_DEBUG` در production برابر `false` باشد.
+- مقدارهای مخصوص deployment را در تنظیمات عملیاتی خصوصی نگه دارید.
+- برای مثال‌های عمومی از IPهای مستنداتی استفاده کنید.
+- rollout اولیه را با TTL پایین انجام دهید.
+- رفتار DNS را از چند resolver و چند شبکه تست کنید.
+- دیتابیس GeoLite2 را منظم به‌روزرسانی کنید.
+- بعد از هر تغییر، پاسخ‌های DNS و لاگ‌های PowerDNS را بررسی کنید.
+
+---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT License
