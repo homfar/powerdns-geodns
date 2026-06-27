@@ -58,12 +58,6 @@ Recommended production baseline:
 PowerDNS Authoritative Server 4.9+ or 5.x
 ```
 
-Why:
-
-- PowerDNS Authoritative Server 4.2 and later support Lua records for dynamic DNS behavior.
-- GeoIP database-based expansions are available through the GeoIP backend when a GeoIP provider such as libmaxminddb is available.
-- For production, use a currently maintained PowerDNS package from your operating system repository or the official PowerDNS repositories.
-
 Check your installed version:
 
 ```bash
@@ -149,6 +143,7 @@ This helps avoid relying on a single signal. For example, if ECS is unavailable 
 - PowerDNS GeoIP backend
 - Lua records enabled
 - MaxMind GeoLite2 Country database
+- `geoipupdate` for database updates
 - `dig` for DNS validation
 
 ---
@@ -174,13 +169,13 @@ Or:
 make validate
 ```
 
-Install PowerDNS Authoritative Server, the GeoIP backend, DNS tools, and Lua.
+Install PowerDNS Authoritative Server, the GeoIP backend, DNS tools, Lua, and MaxMind GeoIP update tools.
 
 Debian/Ubuntu example:
 
 ```bash
 sudo apt update
-sudo apt install -y pdns-server pdns-backend-geoip dnsutils lua5.4
+sudo apt install -y pdns-server pdns-backend-geoip dnsutils lua5.4 geoipupdate
 ```
 
 Check the installed PowerDNS version:
@@ -195,6 +190,7 @@ Create the required directories:
 sudo mkdir -p /etc/powerdns/lua
 sudo mkdir -p /etc/powerdns/geoip
 sudo mkdir -p /etc/powerdns/zones
+sudo mkdir -p /usr/share/GeoIP
 ```
 
 Copy the Lua policy file:
@@ -202,6 +198,84 @@ Copy the Lua policy file:
 ```bash
 sudo cp lua-global/10-geo-policy.lua /etc/powerdns/lua/10-geo-policy.lua
 ```
+
+---
+
+## MaxMind GeoLite2 Database
+
+This project expects the GeoLite2 Country database at the following recommended production path:
+
+```text
+/usr/share/GeoIP/GeoLite2-Country.mmdb
+```
+
+Configure MaxMind GeoIP Update:
+
+```bash
+sudo nano /etc/GeoIP.conf
+```
+
+Example `/etc/GeoIP.conf`:
+
+```conf
+AccountID YOUR_MAXMIND_ACCOUNT_ID
+LicenseKey YOUR_MAXMIND_LICENSE_KEY
+EditionIDs GeoLite2-Country
+DatabaseDirectory /usr/share/GeoIP
+```
+
+Run the database update:
+
+```bash
+sudo geoipupdate -v
+```
+
+Verify that the database exists:
+
+```bash
+ls -lh /usr/share/GeoIP/GeoLite2-Country.mmdb
+```
+
+Recommended permissions:
+
+```bash
+sudo chown root:root /usr/share/GeoIP/GeoLite2-Country.mmdb
+sudo chmod 0644 /usr/share/GeoIP/GeoLite2-Country.mmdb
+```
+
+If your operating system stores MaxMind databases in another directory, keep the same path in your PowerDNS GeoIP configuration.
+
+---
+
+## PowerDNS GeoIP Configuration
+
+Create or edit the PowerDNS GeoDNS configuration:
+
+```bash
+sudo nano /etc/powerdns/pdns.d/geodns.conf
+```
+
+Recommended configuration:
+
+```conf
+launch=geoip
+geoip-database-files=/usr/share/GeoIP/GeoLite2-Country.mmdb
+geoip-zones-file=/etc/powerdns/geoip/geoip-backend.yaml
+```
+
+If your PowerDNS server already uses another backend, do not remove it. Include the GeoIP backend in the existing backend list, for example:
+
+```conf
+launch=gsqlite3,geoip
+```
+
+or:
+
+```conf
+launch=bind,geoip
+```
+
+The important point is that the `geoip` backend must be loaded and the `geoip-database-files` path must point to the actual `.mmdb` file.
 
 Copy the example GeoIP backend configuration and adjust it for your own domain and paths:
 
@@ -216,23 +290,6 @@ Copy the example zone file and customize the domain, records, and endpoint IPs:
 sudo cp zones/examples/example.com.yaml /etc/powerdns/zones/example.com.yaml
 sudo nano /etc/powerdns/zones/example.com.yaml
 ```
-
-Copy or merge the PowerDNS configuration example into your PowerDNS configuration directory:
-
-```bash
-sudo cp docs/pdns.conf.example /etc/powerdns/pdns.d/geodns.conf
-sudo nano /etc/powerdns/pdns.d/geodns.conf
-```
-
-Make sure the configuration points to the correct paths:
-
-```text
-/etc/powerdns/lua/10-geo-policy.lua
-/etc/powerdns/geoip/geoip-backend.yaml
-GeoLite2-Country.mmdb
-```
-
-Install or update the MaxMind GeoLite2 Country database according to your MaxMind account and operating system. The database path used in the PowerDNS configuration must match the actual `.mmdb` file location.
 
 Review the example files before applying them to a server:
 
@@ -377,7 +434,7 @@ docs/TESTING.md
 - Use documentation ranges in examples and public templates.
 - Start rollout with low TTL values.
 - Test with multiple resolvers and networks.
-- Keep the GeoLite2 database updated.
+- Keep the GeoLite2 database updated with `geoipupdate`.
 - Review resolver override lists periodically.
 - Monitor DNS answers after every policy or zone change.
 - Validate GeoDNS behavior before enabling DNSSEC for affected zones.
@@ -455,6 +512,7 @@ Possible improvements:
 - [PowerDNS Lua Records](https://doc.powerdns.com/authoritative/lua-records/)
 - [PowerDNS GeoIP Backend](https://doc.powerdns.com/authoritative/backends/geoip.html)
 - [PowerDNS Lua Record Variables](https://doc.powerdns.com/authoritative/lua-records/functions.html)
+- [MaxMind GeoIP Update](https://dev.maxmind.com/geoip/updating-databases/)
 
 ---
 
@@ -568,7 +626,7 @@ bash scripts/validate.sh
 
 ```bash
 sudo apt update
-sudo apt install -y pdns-server pdns-backend-geoip dnsutils lua5.4
+sudo apt install -y pdns-server pdns-backend-geoip dnsutils lua5.4 geoipupdate
 ```
 
 نسخه PowerDNS را بررسی کنید:
@@ -583,6 +641,7 @@ pdns_server --version
 sudo mkdir -p /etc/powerdns/lua
 sudo mkdir -p /etc/powerdns/geoip
 sudo mkdir -p /etc/powerdns/zones
+sudo mkdir -p /usr/share/GeoIP
 ```
 
 فایل Lua policy را کپی کنید:
@@ -590,6 +649,84 @@ sudo mkdir -p /etc/powerdns/zones
 ```bash
 sudo cp lua-global/10-geo-policy.lua /etc/powerdns/lua/10-geo-policy.lua
 ```
+
+---
+
+## تنظیم دیتابیس MaxMind GeoLite2
+
+مسیر پیشنهادی دیتابیس:
+
+```text
+/usr/share/GeoIP/GeoLite2-Country.mmdb
+```
+
+فایل تنظیمات MaxMind GeoIP Update را ویرایش کنید:
+
+```bash
+sudo nano /etc/GeoIP.conf
+```
+
+نمونه تنظیمات:
+
+```conf
+AccountID YOUR_MAXMIND_ACCOUNT_ID
+LicenseKey YOUR_MAXMIND_LICENSE_KEY
+EditionIDs GeoLite2-Country
+DatabaseDirectory /usr/share/GeoIP
+```
+
+دیتابیس را دریافت یا به‌روزرسانی کنید:
+
+```bash
+sudo geoipupdate -v
+```
+
+وجود فایل دیتابیس را بررسی کنید:
+
+```bash
+ls -lh /usr/share/GeoIP/GeoLite2-Country.mmdb
+```
+
+سطح دسترسی پیشنهادی:
+
+```bash
+sudo chown root:root /usr/share/GeoIP/GeoLite2-Country.mmdb
+sudo chmod 0644 /usr/share/GeoIP/GeoLite2-Country.mmdb
+```
+
+اگر سیستم‌عامل دیتابیس را در مسیر دیگری قرار می‌دهد، همان مسیر باید در تنظیمات PowerDNS استفاده شود.
+
+---
+
+## تنظیم PowerDNS GeoIP
+
+فایل تنظیمات GeoDNS را بسازید یا ویرایش کنید:
+
+```bash
+sudo nano /etc/powerdns/pdns.d/geodns.conf
+```
+
+تنظیمات پیشنهادی:
+
+```conf
+launch=geoip
+geoip-database-files=/usr/share/GeoIP/GeoLite2-Country.mmdb
+geoip-zones-file=/etc/powerdns/geoip/geoip-backend.yaml
+```
+
+اگر PowerDNS شما از backend دیگری هم استفاده می‌کند، backend قبلی را حذف نکنید. `geoip` را به لیست backendها اضافه کنید. مثال:
+
+```conf
+launch=gsqlite3,geoip
+```
+
+یا:
+
+```conf
+launch=bind,geoip
+```
+
+نکته اصلی این است که backend با نام `geoip` فعال باشد و مسیر `geoip-database-files` به فایل واقعی `.mmdb` اشاره کند.
 
 فایل‌های نمونه را برای محیط خود کپی و ویرایش کنید:
 
@@ -599,20 +736,7 @@ sudo nano /etc/powerdns/geoip/geoip-backend.yaml
 
 sudo cp zones/examples/example.com.yaml /etc/powerdns/zones/example.com.yaml
 sudo nano /etc/powerdns/zones/example.com.yaml
-
-sudo cp docs/pdns.conf.example /etc/powerdns/pdns.d/geodns.conf
-sudo nano /etc/powerdns/pdns.d/geodns.conf
 ```
-
-مسیرهای تنظیم‌شده باید با مسیر واقعی فایل‌های زیر هماهنگ باشند:
-
-```text
-/etc/powerdns/lua/10-geo-policy.lua
-/etc/powerdns/geoip/geoip-backend.yaml
-GeoLite2-Country.mmdb
-```
-
-دیتابیس MaxMind GeoLite2 Country را مطابق سیستم‌عامل و حساب MaxMind خود نصب یا به‌روزرسانی کنید.
 
 ---
 
@@ -672,7 +796,7 @@ docs/DEPLOYMENT_CHECKLIST.md
 - برای مثال‌های عمومی از IPهای مستنداتی استفاده کنید.
 - rollout اولیه را با TTL پایین انجام دهید.
 - رفتار DNS را از چند resolver و چند شبکه تست کنید.
-- دیتابیس GeoLite2 را منظم به‌روزرسانی کنید.
+- دیتابیس GeoLite2 را با `geoipupdate` به‌روزرسانی کنید.
 - بعد از هر تغییر، پاسخ‌های DNS و لاگ‌های PowerDNS را بررسی کنید.
 
 ---
