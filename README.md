@@ -1,6 +1,6 @@
 # PowerDNS GeoDNS
 
-[![Validate](https://github.com/homfarmi/powerdns-geodns/actions/workflows/validate.yml/badge.svg)](https://github.com/homfarmi/powerdns-geodns/actions/workflows/validate.yml)
+[![Validate](https://github.com/homfar/powerdns-geodns/actions/workflows/validate.yml/badge.svg)](https://github.com/homfar/powerdns-geodns/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![PowerDNS](https://img.shields.io/badge/PowerDNS-Authoritative-blue)
 ![Lua](https://img.shields.io/badge/Lua-Policy-2C2D72?logo=lua&logoColor=white)
@@ -41,6 +41,34 @@ The policy combines:
 - Resolver GeoIP fallback
 - Manual resolver override rules
 - Safe fallback behavior for unknown or incomplete signals
+
+---
+
+## Compatibility
+
+Minimum PowerDNS requirement:
+
+```text
+PowerDNS Authoritative Server 4.2+
+```
+
+Recommended production baseline:
+
+```text
+PowerDNS Authoritative Server 4.9+ or 5.x
+```
+
+Why:
+
+- PowerDNS Authoritative Server 4.2 and later support Lua records for dynamic DNS behavior.
+- GeoIP database-based expansions are available through the GeoIP backend when a GeoIP provider such as libmaxminddb is available.
+- For production, use a currently maintained PowerDNS package from your operating system repository or the official PowerDNS repositories.
+
+Check your installed version:
+
+```bash
+pdns_server --version
+```
 
 ---
 
@@ -116,7 +144,8 @@ This helps avoid relying on a single signal. For example, if ECS is unavailable 
 ## Requirements
 
 - Linux server
-- PowerDNS Authoritative Server
+- PowerDNS Authoritative Server 4.2+
+- Recommended: PowerDNS Authoritative Server 4.9+ or 5.x
 - PowerDNS GeoIP backend
 - Lua records enabled
 - MaxMind GeoLite2 Country database
@@ -124,16 +153,16 @@ This helps avoid relying on a single signal. For example, if ECS is unavailable 
 
 ---
 
-## Quick Start
+## Quick Start and Installation
 
 Clone the repository:
 
 ```bash
-git clone https://github.com/homfarmi/powerdns-geodns.git
+git clone https://github.com/homfar/powerdns-geodns.git
 cd powerdns-geodns
 ```
 
-Run validation:
+Run repository validation:
 
 ```bash
 bash scripts/validate.sh
@@ -145,25 +174,19 @@ Or:
 make validate
 ```
 
-Review the example configuration files:
+Install PowerDNS Authoritative Server, the GeoIP backend, DNS tools, and Lua.
 
-```bash
-cat docs/pdns.conf.example
-cat docs/geoip-backend.yaml.example
-cat zones/examples/example.com.yaml
-```
-
----
-
-## Installation
-
-The exact package names may differ between Linux distributions. The example below shows a typical Debian/Ubuntu-based setup.
-
-Install PowerDNS Authoritative Server, the GeoIP backend, DNS tools, and Lua:
+Debian/Ubuntu example:
 
 ```bash
 sudo apt update
 sudo apt install -y pdns-server pdns-backend-geoip dnsutils lua5.4
+```
+
+Check the installed PowerDNS version:
+
+```bash
+pdns_server --version
 ```
 
 Create the required directories:
@@ -201,7 +224,7 @@ sudo cp docs/pdns.conf.example /etc/powerdns/pdns.d/geodns.conf
 sudo nano /etc/powerdns/pdns.d/geodns.conf
 ```
 
-Make sure the configuration points to:
+Make sure the configuration points to the correct paths:
 
 ```text
 /etc/powerdns/lua/10-geo-policy.lua
@@ -210,6 +233,14 @@ GeoLite2-Country.mmdb
 ```
 
 Install or update the MaxMind GeoLite2 Country database according to your MaxMind account and operating system. The database path used in the PowerDNS configuration must match the actual `.mmdb` file location.
+
+Review the example files before applying them to a server:
+
+```bash
+cat docs/pdns.conf.example
+cat docs/geoip-backend.yaml.example
+cat zones/examples/example.com.yaml
+```
 
 ---
 
@@ -465,6 +496,28 @@ IR      -> مسیر منطقه‌ای
 
 ---
 
+## نسخه‌های سازگار
+
+حداقل نسخه مورد نیاز:
+
+```text
+PowerDNS Authoritative Server 4.2+
+```
+
+نسخه پیشنهادی برای production:
+
+```text
+PowerDNS Authoritative Server 4.9+ یا 5.x
+```
+
+برای مشاهده نسخه نصب‌شده:
+
+```bash
+pdns_server --version
+```
+
+---
+
 ## منطق اصلی
 
 تابع اصلی:
@@ -503,31 +556,25 @@ geo_pick("192.0.2.10", "198.51.100.10")
 
 ---
 
-## شروع سریع
+## شروع سریع و نصب
 
 ```bash
-git clone https://github.com/homfarmi/powerdns-geodns.git
+git clone https://github.com/homfar/powerdns-geodns.git
 cd powerdns-geodns
 bash scripts/validate.sh
 ```
-
-فایل‌های نمونه را بررسی کنید:
-
-```bash
-cat docs/pdns.conf.example
-cat docs/geoip-backend.yaml.example
-cat zones/examples/example.com.yaml
-```
-
----
-
-## نصب
 
 نمونه نصب روی Debian/Ubuntu:
 
 ```bash
 sudo apt update
 sudo apt install -y pdns-server pdns-backend-geoip dnsutils lua5.4
+```
+
+نسخه PowerDNS را بررسی کنید:
+
+```bash
+pdns_server --version
 ```
 
 دایرکتوری‌های لازم را بسازید:
